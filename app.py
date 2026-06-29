@@ -207,110 +207,111 @@ with tab_screening:
 # ==========================================
 # TAB 2: DASHBOARD AI & DATASET
 # ==========================================
+# ==========================================
+# TAB 2: DASHBOARD AI & DATASET
+# ==========================================
 with tab_analytics:
-    st.header("📈 Analisis Dataset & Model Bernoulli Naive Bayes")
+    st.subheader("📈 Analisis Dataset & Model Klasifikasi")
     
-    # Upload File
-    uploaded_file = st.file_uploader("📁 Upload Dataset Custom (.xlsx / .csv)", type=['xlsx', 'csv'])
+    # Fitur unggah berkas kustom
+    uploaded_file = st.file_uploader("📁 Upload Dataset Custom Anda (.xlsx atau .csv)", type=["xlsx", "csv"])
     
-    # Load Data (Custom atau Default)
+    # Penentuan sumber data
     if uploaded_file is not None:
         try:
-            if uploaded_file.name.endswith('.csv'):
-                df = pd.read_csv(uploaded_file)
+            if uploaded_file.name.endswith(".csv"):
+                df_data = pd.read_csv(uploaded_file)
             else:
-                df = pd.read_excel(uploaded_file)
-            
-            # Normalisasi kolom jika menggunakan dataset mentah baru (pastikan ada Q1-Q20, dsb.)
-            fitur_cols = [col for col in df.columns if col.startswith('Q')][:20]
-            for col in fitur_cols:
-                df[col] = df[col].replace({'Ya': 1, 'Tidak': 0, '1': 1, '0': 0}).astype(int)
-            
-            if 'Score' not in df.columns:
-                df['Score'] = df[fitur_cols].sum(axis=1)
-            if 'Kategori' not in df.columns:
-                df['Kategori'] = np.where(df['Score'] >= 6, 1, 0)
+                df_data = pd.read_excel(uploaded_file)
                 
-            st.success(f"Berhasil memuat {len(df)} baris data dari {uploaded_file.name}!")
+            # --- FIX: GANTI NAMA KOLOM MENJADI Q1-Q20 ---
+            # Jika dataset asli diupload, kita ubah kolom ke-6 hingga ke-25 menjadi Q1-Q20
+            # Sesuai dengan "TAHAP 3 : SELECTION DATA" di script asli Anda
+            if 'Q1' not in df_data.columns and len(df_data.columns) >= 25:
+                rename_dict = {df_data.columns[i+5]: f'Q{i+1}' for i in range(20)}
+                df_data.rename(columns=rename_dict, inplace=True)
+            elif 'Q1' not in df_data.columns and len(df_data.columns) >= 20:
+                # Fallback jika kolom kurang dari 25 tapi minimal ada 20
+                rename_dict = {df_data.columns[i]: f'Q{i+1}' for i in range(20)}
+                df_data.rename(columns=rename_dict, inplace=True)
+                
+            # Pembersihan kolom otomatis (mencari kolom Q1-Q20)
+            kolom_fitur = [f"Q{i}" for i in range(1, 21)]
+            for col in kolom_fitur:
+                if col in df_data.columns:
+                    df_data[col] = df_data[col].replace({'Ya': 1, 'Tidak': 0, '1': 1, '0': 0}).astype(int)
+            
+            if "Score" not in df_data.columns:
+                df_data["Score"] = df_data[kolom_fitur].sum(axis=1)
+            if "Kategori" not in df_data.columns:
+                df_data["Kategori"] = np.where(df_data["Score"] >= 6, 1, 0)
+                
+            st.success(f"Dataset kustom '{uploaded_file.name}' berhasil dimuat!")
         except Exception as e:
-            st.error(f"Gagal memproses file: {e}")
-            df = generate_default_dataset()
+            st.error(f"Gagal membaca file: {e}. Menggunakan data simulasi bawaan.")
+            df_data = generate_default_data()
     else:
-        df = generate_default_dataset()
+        df_data = generate_default_data()
         
-    # Menghitung Metrik Statistik
-    total_data = len(df)
-    normal_count = len(df[df['Kategori'] == 0])
-    stress_count = len(df[df['Kategori'] == 1])
+    # Kalkulasi Variabel & Metrik Klasifikasi
+    total_responden = len(df_data)
+    total_normal = len(df_data[df_data["Kategori"] == 0])
+    total_stres = len(df_data[df_data["Kategori"] == 1])
     
-    fitur = [f'Q{i}' for i in range(1, 21)]
+    model_nb, acc, prec, rec, f1 = train_naive_bayes(df_data)
     
-    # Training Model Scikit-Learn (Sesuai script python referensi)
-    X = df[fitur]
-    y = df['Kategori']
+    # Tampilan KPI Stat Cards
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Total Responden", f"{total_responden} Orang")
+    m2.metric("🟢 Kategori Stabil (< 6)", f"{total_normal} ({round(total_normal/total_responden*100, 1)}%)")
+    m3.metric("🔴 Terindikasi Stres (≥ 6)", f"{total_stres} ({round(total_stres/total_responden*100, 1)}%)")
+    m4.metric("🎯 Akurasi BernoulliNB", f"{round(acc, 1)}%")
     
-    # Fallback minimal data split jika dataset terlalu kecil atau kelas tidak seimbang
-    if stress_count < 2 or normal_count < 2:
-        st.warning("Distribusi kelas terlalu sedikit untuk Test-Split. Menampilkan data statistik saja.")
-        akurasi, presisi, recall, f1 = 0, 0, 0, 0
-    else:
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-        model = BernoulliNB(alpha=1)
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
-        
-        akurasi = accuracy_score(y_test, y_pred) * 100
-        presisi = precision_score(y_test, y_pred, zero_division=0) * 100
-        recall = recall_score(y_test, y_pred, zero_division=0) * 100
-        f1 = f1_score(y_test, y_pred, zero_division=0) * 100
-
-    # UI Metrik
-    met1, met2, met3, met4 = st.columns(4)
-    met1.metric("Total Responden", total_data)
-    met2.metric("🟢 Tidak Terindikasi (< 6)", f"{normal_count} ({round(normal_count/total_data*100, 1)}%)")
-    met3.metric("🔴 Terindikasi Stres (≥ 6)", f"{stress_count} ({round(stress_count/total_data*100, 1)}%)")
-    met4.metric("🎯 Akurasi AI (Test Data)", f"{round(akurasi, 1)}%")
-
     st.markdown("---")
     
-    # Visualisasi (Plotly)
-    col_chart1, col_chart2 = st.columns(2)
+    # Sesi Grafik Visualisasi dengan Plotly
+    g_col1, g_col2 = st.columns(2)
     
-    with col_chart1:
-        st.subheader("Distribusi Kategori SRQ-20")
-        fig_dist = px.pie(
-            names=["Tidak Terindikasi (< 6)", "Terindikasi Stres (≥ 6)"],
-            values=[normal_count, stress_count],
+    with g_col1:
+        st.write("#### 📊 Grafik Distribusi Kategori SRQ-20")
+        fig_pie = px.pie(
+            names=["Kategori Stabil (0)", "Terindikasi Stres (1)"],
+            values=[total_normal, total_stres],
             color_discrete_sequence=["#10B981", "#F43F5E"],
             hole=0.4
         )
-        st.plotly_chart(fig_dist, use_container_width=True)
-
-    with col_chart2:
-        st.subheader("Evaluasi Performa Model")
-        fig_metrics = px.bar(
-            x=["Akurasi", "Presisi", "Recall", "F1-Score"],
-            y=[akurasi, presisi, recall, f1],
-            text=[f"{round(akurasi,1)}%", f"{round(presisi,1)}%", f"{round(recall,1)}%", f"{round(f1,1)}%"],
-            color=["Akurasi", "Presisi", "Recall", "F1-Score"],
+        # Mengganti use_container_width menjadi width="stretch" (Fix warning)
+        st.plotly_chart(fig_pie, width="stretch")
+        
+    with g_col2:
+        st.write("#### 🎯 Metrik Evaluasi Performa Model AI (%)")
+        fig_bar = px.bar(
+            x=["Akurasi", "Precision", "Recall", "F1-Score"],
+            y=[acc, prec, rec, f1],
+            text=[f"{round(acc,1)}%", f"{round(prec,1)}%", f"{round(rec,1)}%", f"{round(f1,1)}%"],
+            color=["Akurasi", "Precision", "Recall", "F1-Score"],
             color_discrete_sequence=["#6366F1", "#8B5CF6", "#3B82F6", "#EC4899"]
         )
-        fig_metrics.update_traces(textposition='outside')
-        fig_metrics.update_layout(showlegend=False, yaxis=dict(range=[0, 110], title="Persentase (%)"), xaxis=dict(title=""))
-        st.plotly_chart(fig_metrics, use_container_width=True)
-
-    # Tabel Data
-    st.subheader("📑 Pratinjau Hasil Analisis Dataset")
-    filter_kat = st.selectbox("Filter Kategori:", ["Semua Kategori", "Terindikasi Stres (≥ 6)", "Tidak Terindikasi (< 6)"])
-    
-    if filter_kat == "Terindikasi Stres (≥ 6)":
-        df_show = df[df['Kategori'] == 1]
-    elif filter_kat == "Tidak Terindikasi (< 6)":
-        df_show = df[df['Kategori'] == 0]
-    else:
-        df_show = df
+        fig_bar.update_traces(textposition='outside')
+        fig_bar.update_layout(showlegend=False, yaxis=dict(range=[0, 115], title="Nilai Persen (%)"), xaxis=dict(title=""))
+        # Mengganti use_container_width menjadi width="stretch" (Fix warning)
+        st.plotly_chart(fig_bar, width="stretch")
         
-    st.dataframe(df_show, use_container_width=True, hide_index=True)
+    st.markdown("---")
+    
+    # Tabel Pratinjau Dataset Berdasarkan Filter Kategori
+    st.write("#### 📑 Pratinjau Tabel Data Responden")
+    opsi_filter = st.selectbox("Saring Tampilan Berdasarkan Kategori:", ["Semua Data", "🔴 Hanya Terindikasi Stres (≥ 6)", "🟢 Hanya Kategori Stabil (< 6)"])
+    
+    if opsi_filter == "🔴 Hanya Terindikasi Stres (≥ 6)":
+        df_tampil = df_data[df_data["Kategori"] == 1]
+    elif opsi_filter == "🟢 Hanya Kategori Stabil (< 6)":
+        df_tampil = df_data[df_data["Kategori"] == 0]
+    else:
+        df_tampil = df_data
+        
+    # Mengganti use_container_width menjadi width="stretch" (Fix warning)
+    st.dataframe(df_tampil, width="stretch", hide_index=True)
 
 # ==========================================
 # TAB 3: PANDUAN & EDUKASI
